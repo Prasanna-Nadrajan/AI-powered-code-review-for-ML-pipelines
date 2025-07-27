@@ -60,7 +60,7 @@ Before contributing, ensure you have:
 
 ```bash
 # Fork the repository on GitHub, then:
-git clone https://github.com/Prasanna-Nadrajan/AI-powered-code-review-for-ML-pipelines
+git clone https://github.com/Prasanna-Nadrajan/AI-powered-code-review-for-ML-pipelines.git
 cd AI_powered_code_review_for_ML_pipelines
 ```
 
