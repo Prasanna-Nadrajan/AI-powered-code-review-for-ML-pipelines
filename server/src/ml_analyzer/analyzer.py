@@ -1,8 +1,5 @@
-# reviewer/analyzer.py
-
 import ast
 import re
-# CORRECTED: The import path is now direct.
 from rules import get_comprehensive_rules
 
 class MLCodeReviewer:
@@ -17,13 +14,18 @@ class MLCodeReviewer:
     def analyze_code(self, code):
         """
         Performs a comprehensive analysis of the given code snippet.
-
-        Args:
-            code (str): The Python code to analyze.
-
-        Returns:
-            list: A list of dictionaries, where each represents a found issue.
+        It now checks for syntax errors first and stops if any are found.
         """
+        # --- LOGIC FIX: Prioritize Syntax Check ---
+        # First, try to parse the code. If it fails, it's a syntax error.
+        syntax_issues = self._ast_analysis(code)
+        if syntax_issues:
+            # If there's a syntax error, the code is invalid.
+            # Immediately return only this critical issue.
+            return syntax_issues
+        # -----------------------------------------
+
+        # If the code is syntactically valid, proceed with other checks.
         issues = []
         lines = code.splitlines()
 
@@ -42,8 +44,8 @@ class MLCodeReviewer:
                         })
 
         # Specific, more complex checks
-        issues.extend(self._detect_scaling_issues(code, lines))
-        issues.extend(self._ast_analysis(code))
+        if 'feature_scaling' in self.rules:
+            issues.extend(self._detect_scaling_issues(code, lines))
 
         return self._deduplicate_issues(issues)
 
@@ -52,14 +54,14 @@ class MLCodeReviewer:
         for i, line in enumerate(lines, 1):
             if re.search(pattern, line, re.IGNORECASE):
                 return i
-        return 1 # Default to line 1 if not found in a specific line
+        return 1
 
     def _detect_scaling_issues(self, code, lines):
         """Detects missing feature scaling for scale-sensitive algorithms."""
         issues = []
         rule_info = self.rules['feature_scaling']
-        scale_sensitive = rule_info['scale_sensitive_algorithms']
-        scalers = rule_info['scalers']
+        scale_sensitive = rule_info.get('scale_sensitive_algorithms', {})
+        scalers = rule_info.get('scalers', [])
 
         for algorithm, full_name in scale_sensitive.items():
             if re.search(r'\b' + algorithm + r'\b', code) and not any(scaler in code for scaler in scalers):
@@ -73,18 +75,21 @@ class MLCodeReviewer:
         return issues
 
     def _ast_analysis(self, code):
-        """Performs AST-based analysis to find syntax errors."""
-        issues = []
+        """
+        Performs AST-based analysis to find syntax errors.
+        Returns a list containing the syntax error if found, otherwise an empty list.
+        """
         try:
             ast.parse(code)
+            return []  # No syntax error found
         except SyntaxError as e:
-            issues.append({
+            # Return a list containing only the syntax error information
+            return [{
                 'line': e.lineno or 1,
-                'issue': f'Syntax error: {e.msg}',
-                'severity': 'error',
+                'issue': f'Fatal Syntax Error: {e.msg}',
+                'severity': 'error', # 'error' will be treated as 'critical' by main.py
                 'category': 'syntax'
-            })
-        return issues
+            }]
 
     def _deduplicate_issues(self, issues):
         """Removes duplicate issues."""
@@ -96,35 +101,3 @@ class MLCodeReviewer:
                 seen.add(identifier)
                 unique_issues.append(issue)
         return unique_issues
-
-    def generate_review_report(self, code):
-        """Generates a formatted string report from the list of found issues."""
-        issues = self.analyze_code(code)
-        if not issues:
-            return "✅ **Excellent!** No issues detected."
-
-        report_parts = []
-        severities = ['critical', 'error', 'warning', 'suggestion', 'positive']
-        grouped_issues = {sev: [] for sev in severities}
-        for issue in issues:
-            grouped_issues[issue['severity']].append(issue)
-
-        # Define icons for report
-        icons = {'critical': '🚨', 'error': '❌', 'warning': '⚠️', 'suggestion': '💡', 'positive': '✅'}
-        headers = {
-            'critical': 'CRITICAL ISSUES (Fix Immediately)',
-            'error': 'SYNTAX ERRORS',
-            'warning': 'WARNINGS',
-            'suggestion': 'SUGGESTIONS FOR IMPROVEMENT',
-            'positive': 'GOOD PRACTICES DETECTED'
-        }
-
-        for sev in severities:
-            if grouped_issues[sev]:
-                report_parts.append(f"**{icons[sev]} {headers[sev]}:**")
-                for issue in grouped_issues[sev]:
-                    line_info = f"Line {issue['line']}: " if 'line' in issue and sev not in ['warning', 'suggestion', 'positive'] else ""
-                    report_parts.append(f"- {line_info}{issue['issue']}")
-                report_parts.append("")
-
-        return "\n".join(report_parts)
